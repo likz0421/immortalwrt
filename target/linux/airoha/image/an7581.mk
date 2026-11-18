@@ -283,3 +283,19 @@ define Device/znxt_zn504xg-d-ubi
   ARTIFACT/preloader.bin := an7581-preloader znxt_zn504xg-d
 endef
 TARGET_DEVICES += znxt_zn504xg-d-ubi
+
+define Device/h3c_hm2004-du-ubi
+  DEVICE_VENDOR := H3C
+  DEVICE_MODEL := HM2004-DU
+  DEVICE_VARIANT := UBI
+  DEVICE_DTS := an7581-h3c-hm2004-du
+  SOC := an7581
+  $(call Device/airoha-ubi)
+  SUPPORTED_DEVICES := h3c,hm2004-du
+  DEVICE_PACKAGES += kmod-gpio-button-hotplug kmod-leds-gpio \
+	kmod-phy-airoha-en8811h kmod-mt7915-firmware kmod-usb3 \
+	kmod-usb-ledtrig-usbport
+  ARTIFACT/bl31-uboot.fip := an7581-bl31-uboot h3c_hm2004-du
+  ARTIFACT/preloader.bin := an7581-preloader h3c_hm2004-du
+endef
+TARGET_DEVICES += h3c_hm2004-du-ubi
