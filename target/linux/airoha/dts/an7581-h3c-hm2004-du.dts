@@ -1,0 +1,499 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR MIT)
+
+#include <dt-bindings/leds/common.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include "an7581.dtsi"
+
+/*
+ * H3C HM2004-DU (联通定制 FTTR 主网关，AN7581CT).
+ *
+ * 与 HG5382A/ZN504XG-D 一样从原厂迁移：本固件不带 PON 驱动，只当
+ * 路由器 / 交换机用，所以不描述 xpon_mac、gdm2、BOSA（i2c0@0x50）和
+ * PON 口相关的 optical-front-end。面板上 pon / los / internet 三盏灯
+ * 的默认触发器（pon0-registration 等）随 PON 驱动一起省略，只保留
+ * GPIO 定义；要在用户态接管时再补。
+ *
+ * 闪存是 Winbond W25N02KV：BL2 占前 128 KiB，其余整片 UBI。板级数据
+ * 在 1 MiB 的 "factory" 卷里（h3c-factory 工具从原厂 reservearea 拼出的
+ * H3C 工厂布局），base MAC 在 0x10 的 6 个裸字节，与
+ * base-files/lib/preinit/90_airoha_ubi_mac 的 h3c,hm2004-du 分支共用。
+ *
+ * 与 ZN504 的差别：这里带 MT7916D 双芯片 Wi-Fi（pcie0/pcie1 各一颗），
+ * EEPROM 在 factory 卷 0x1000 处；factory 卷缺内容时 Wi-Fi 驱动 probe
+ * 失败属预期，写好 factory 后重启即可。还有一颗 USB 口（USB2 only）。
+ */
+
+/ {
+	model = "H3C HM2004-DU";
+	compatible = "h3c,hm2004-du", "airoha,an7581", "airoha,en7581";
+
+	aliases {
+		label-mac-device = &gdm4;
+
+		led-boot = &led_power_green;
+		led-failsafe = &led_power_green;
+		led-running = &led_power_green;
+		led-upgrade = &led_power_green;
+
+		serial0 = &uart1;
+	};
+
+	chosen {
+		bootargs = "console=ttyS0,115200 earlycon";
+		bootargs-append = "ubi.fm_autoconvert=1";
+		stdout-path = "serial0:115200n8";
+		/*
+		 * 上限裁剪：内核走 memblock_cap_memory_range()，只能往少裁、
+		 * 不会凭空多出内存；真正容量在 memory 节点（或引导程序 fixup）。
+		 */
+		linux,usable-memory-range = <0x0 0x80200000 0x0 0x7fe00000>;
+	};
+
+	rootdisk = <&ubi_fit>;
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x0 0x80000000 0x0 0x20000000>;
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+
+		button-0 {
+			label = "reset";
+			linux,code = <KEY_RESTART>;
+			gpios = <&en7581_pinctrl 0 GPIO_ACTIVE_LOW>;
+			debounce-interval = <60>;
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led_power_green: led-0 {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_POWER;
+			gpios = <&en7581_pinctrl 17 GPIO_ACTIVE_LOW>;
+			default-state = "on";
+			panic-indicator;
+		};
+
+		/*
+		 * pon / los / internet 是光猫的三盏业务灯，本固件不带 PON
+		 * 驱动，不做触发器，保持 GPIO 定义便于用户态接管。
+		 */
+		led-1 {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_WAN;
+			gpios = <&en7581_pinctrl 18 GPIO_ACTIVE_LOW>;
+		};
+
+		led-2 {
+			color = <LED_COLOR_ID_RED>;
+			function = LED_FUNCTION_WAN;
+			gpios = <&en7581_pinctrl 19 GPIO_ACTIVE_LOW>;
+		};
+
+		led-3 {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_WAN_ONLINE;
+			gpios = <&en7581_pinctrl 20 GPIO_ACTIVE_LOW>;
+		};
+
+		led-4 {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_WLAN;
+			gpios = <&en7581_pinctrl 15 GPIO_ACTIVE_LOW>;
+		};
+
+		led-5 {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_USB;
+			gpios = <&en7581_pinctrl 34 GPIO_ACTIVE_LOW>;
+			linux,default-trigger = "usbport";
+			trigger-sources = <&usb1_port1>;
+		};
+	};
+};
+
+&en7581_pinctrl {
+	gpio-ranges = <&en7581_pinctrl 0 13 50>;
+
+	mdio_pins: mdio-pins {
+		mux {
+			function = "mdio";
+			groups = "mdio";
+		};
+
+		conf {
+			pins = "gpio2";
+			output-high;
+		};
+	};
+
+	gswp2_led0_pins: gswp2-led0-pins {
+		mux {
+			function = "phy2_led0";
+			pins = "gpio44";
+		};
+	};
+
+	gswp3_led0_pins: gswp3-led0-pins {
+		mux {
+			function = "phy3_led0";
+			pins = "gpio45";
+		};
+	};
+
+	gswp4_led0_pins: gswp4-led0-pins {
+		mux {
+			function = "phy4_led0";
+			pins = "gpio46";
+		};
+	};
+
+	pcie0_rst_pins: pcie0-rst-pins {
+		conf {
+			pins = "pcie_reset0";
+			drive-open-drain;
+		};
+	};
+
+	pcie1_rst_pins: pcie1-rst-pins {
+		conf {
+			pins = "pcie_reset1";
+			drive-open-drain;
+		};
+	};
+};
+
+&snfi {
+	status = "okay";
+};
+
+&spi_nand {
+	/* 显式写死：这台机器不写 compatible 时 probe 顺序不稳定。 */
+	compatible = "winbond,w25n02kv", "spi-nand";
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		partition@0 {
+			label = "bl2";
+			reg = <0x0 0x20000>;
+			read-only;
+		};
+
+		partition@20000 {
+			label = "ubi";
+			reg = <0x20000 0xffe0000>;
+			compatible = "linux,ubi";
+
+			volumes {
+				ubi_fit: ubi-volume-fit {
+					volname = "fit";
+				};
+
+				ubi-volume-fip {
+					volname = "fip";
+				};
+
+				ubi_env: ubi-volume-ubootenv {
+					volname = "ubootenv";
+
+					nvmem-layout {
+						compatible = "u-boot,env-redundant-bool-layout";
+					};
+				};
+
+				ubi_env2: ubi-volume-ubootenv2 {
+					volname = "ubootenv2";
+
+					nvmem-layout {
+						compatible = "u-boot,env-redundant-bool-layout";
+					};
+				};
+
+				/*
+				 * H3C 工厂布局 1 MiB：magic@0、base-mac@10、
+				 * mac-eth0@20、mac-pon0@30、mac-5g@40、mac-24g@50、
+				 * pon-serial@60、EEPROM@1000、PON 校准@2000。
+				 */
+				ubi-volume-factory {
+					volname = "factory";
+
+					nvmem-layout {
+						compatible = "fixed-layout";
+						#address-cells = <1>;
+						#size-cells = <1>;
+
+						magic@0 {
+							reg = <0x0 0x8>;
+						};
+
+						base_mac: base-mac@10 {
+							compatible = "mac-base";
+							reg = <0x10 0x6>;
+							#nvmem-cell-cells = <1>;
+						};
+
+						mac-eth0@20 {
+							reg = <0x20 0x6>;
+							phandle = <0x103>;
+						};
+
+						mac-pon0@30 {
+							reg = <0x30 0x6>;
+							phandle = <0x104>;
+						};
+
+						mac-5g@40 {
+							reg = <0x40 0x6>;
+							phandle = <0x101>;
+						};
+
+						mac-24g@50 {
+							reg = <0x50 0x6>;
+							phandle = <0x102>;
+						};
+
+						mac-24g@50 {
+							reg = <0x50 0x6>;
+							phandle = <0x102>;
+						};
+
+						pon-serial@60 {
+							reg = <0x60 0xc>;
+						};
+
+						eeprom@1000 {
+							reg = <0x1000 0x1000>;
+							phandle = <0x100>;
+						};
+
+						calibration@2000 {
+							reg = <0x2000 0x200>;
+						};
+					};
+				};
+			};
+		};
+	};
+};
+
+&ubi_env {
+	nvmem-layout {
+		compatible = "u-boot,env-redundant-bool-layout";
+	};
+};
+
+&ubi_env2 {
+	nvmem-layout {
+		compatible = "u-boot,env-redundant-bool-layout";
+	};
+};
+
+&i2c0 {
+	status = "okay";
+};
+
+&npu {
+	status = "okay";
+};
+
+&eth {
+	status = "okay";
+};
+
+&eth_pcs {
+	status = "okay";
+};
+
+&pon_pcs {
+	status = "okay";
+};
+
+&pcie0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie0_rst_pins>;
+	status = "okay";
+
+	pcie@0,0 {
+		reg = <0x0000 0 0 0 0>;
+
+		wifi@0,0 {
+			compatible = "mediatek,mt76";
+			reg = <0x0000 0 0 0 0>;
+			airoha,npu = <&npu>;
+			airoha,eth = <&eth>;
+		};
+	};
+};
+
+&pcie1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie1_rst_pins>;
+	status = "okay";
+
+	pcie@0,0 {
+		reg = <0x0000 0 0 0 0>;
+
+			wifi@0,0 {
+				compatible = "mediatek,mt76";
+				reg = <0x0000 0 0 0 0>;
+				airoha,npu = <&npu>;
+				airoha,eth = <&eth>;
+
+				nvmem-cells = <&wifi_eeprom>;
+				nvmem-cell-names = "eeprom";
+				mediatek,eeprom-merge-otp;
+
+				band@0 {
+					reg = <0>;
+					nvmem-cells = <&mac_24g>;
+					nvmem-cell-names = "mac-address";
+				};
+
+				band@1 {
+					reg = <1>;
+					nvmem-cells = <&mac_5g>;
+					nvmem-cell-names = "mac-address";
+				};
+			};
+	};
+};
+
+&usb1 {
+	mediatek,u3p-dis-msk = <0x1>;
+	status = "okay";
+
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	usb1_port1: port@1 {
+		reg = <1>;
+		#trigger-source-cells = <0>;
+	};
+};
+
+&gdm1 {
+	status = "okay";
+};
+
+&switch {
+	status = "okay";
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&mdio_pins>;
+};
+
+&mdio {
+	/*
+	 * EN8811H 复位时序与 Nokia 板不同：拉低 1 s、放开 100 ms，
+	 * 短了这台机器探测不到。LED 规则由驱动 probe 时的预置给出。
+	 */
+	en8811: ethernet-phy@f {
+		compatible = "ethernet-phy-id03a2.a411";
+		reg = <0xf>;
+
+		reset-gpios = <&en7581_pinctrl 31 GPIO_ACTIVE_LOW>;
+		reset-assert-us = <1000000>;
+		reset-deassert-us = <100000>;
+
+		leds {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			led-0 {
+				reg = <0>;
+				color = <LED_COLOR_ID_GREEN>;
+				function = LED_FUNCTION_LAN;
+				function-enumerator = <1>;
+			};
+		};
+	};
+};
+
+&gsw_port2 {
+	status = "okay";
+
+	label = "lan2";
+};
+
+&gsw_phy2 {
+	status = "okay";
+
+	interrupts = <2>;
+
+	pinctrl-names = "gbe-led";
+	pinctrl-0 = <&gswp2_led0_pins>;
+};
+
+&gsw_phy2_led0 {
+	status = "okay";
+
+	color = <LED_COLOR_ID_GREEN>;
+	function = LED_FUNCTION_LAN;
+	function-enumerator = <2>;
+	active-low;
+};
+
+&gsw_port3 {
+	status = "okay";
+
+	label = "lan3";
+};
+
+&gsw_phy3 {
+	status = "okay";
+
+	interrupts = <3>;
+
+	pinctrl-names = "gbe-led";
+	pinctrl-0 = <&gswp3_led0_pins>;
+};
+
+&gsw_phy3_led0 {
+	status = "okay";
+
+	color = <LED_COLOR_ID_GREEN>;
+	function = LED_FUNCTION_LAN;
+	function-enumerator = <3>;
+	active-low;
+};
+
+&gsw_port4 {
+	status = "okay";
+
+	label = "lan4";
+};
+
+&gsw_phy4 {
+	status = "okay";
+
+	interrupts = <4>;
+
+	pinctrl-names = "gbe-led";
+	pinctrl-0 = <&gswp4_led0_pins>;
+};
+
+&gsw_phy4_led0 {
+	status = "okay";
+
+	color = <LED_COLOR_ID_GREEN>;
+	function = LED_FUNCTION_LAN;
+	function-enumerator = <4>;
+	active-low;
+};
+
+&gdm4 {
+	status = "okay";
+
+	openwrt,netdev-name = "lan1";
+
+	phy-handle = <&en8811>;
+	phy-mode = "2500base-x";
+};
