@@ -40,6 +40,15 @@ define U-Boot/an7581_fiberhome_hg5382a
   BL33_LZMA_MAX:=0x70000
 endef
 
+define U-Boot/an7581_h3c_hm2004-du
+  NAME:=H3C HM2004-DU
+  UBOOT_CONFIG:=an7581_h3c_hm2004-du
+  BUILD_DEVICES:=h3c_hm2004-du-ubi
+  BUILD_SUBTARGET:=an7581
+  BL2_IMAGE:=an7581-bl2.bin
+  BL31_IMAGE:=an7581-bl31.bin
+endef
+
 define U-Boot/an7581_gemtek_w1700k
   NAME:=Gemtek W1700K (UBI)
   UBOOT_CONFIG:=an7581_w1700k
@@ -124,6 +133,7 @@ endef
 
 UBOOT_TARGETS := \
 	an7581_fiberhome_hg5382a \
+	an7581_h3c_hm2004-du \
 	an7581_gemtek_w1700k \
 	an7581_nokia_valyrian \
 	an7581_nokia_xg-040g-md \
